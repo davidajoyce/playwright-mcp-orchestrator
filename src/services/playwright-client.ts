@@ -9,16 +9,24 @@ export class PlaywrightClient {
     const baseUrl = `http://${config.orchestratorHost}:${this.instance.port}`;
 
     try {
-      logger.debug("Fetching tools from Playwright instance", {
+      logger.debug("Sending MCP listTools request to Playwright instance", {
         instanceId: this.instance.id,
-        url: `${baseUrl}/tools`
+        url: `${baseUrl}/mcp`
       });
 
-      const response = await fetch(`${baseUrl}/tools`, {
-        method: "GET",
+      // Send proper MCP JSON-RPC request to list tools
+      const mcpRequest = {
+        jsonrpc: "2.0",
+        method: "tools/list",
+        id: Math.floor(Math.random() * 100000)
+      };
+
+      const response = await fetch(`${baseUrl}/mcp`, {
+        method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
+        body: JSON.stringify(mcpRequest),
         signal: AbortSignal.timeout(config.healthCheckTimeoutMs),
       });
 
@@ -26,23 +34,36 @@ export class PlaywrightClient {
         throw new Error(`HTTP ${response.status}: ${response.statusText}`);
       }
 
-      const data = await response.json();
+      const mcpResponse = await response.json();
 
-      // Handle different response formats
-      const tools = data.tools || data.result?.tools || data;
-
-      if (!Array.isArray(tools)) {
-        throw new Error("Invalid response format: expected array of tools");
+      if (mcpResponse.error) {
+        throw new Error(`MCP Error: ${mcpResponse.error.message || JSON.stringify(mcpResponse.error)}`);
       }
 
-      logger.debug("Successfully retrieved tools", {
+      const tools = mcpResponse.result?.tools || [];
+
+      if (!Array.isArray(tools)) {
+        throw new Error("Invalid MCP response format: expected tools array in result");
+      }
+
+      // Transform MCP tools to our format
+      const transformedTools: PlaywrightTool[] = tools.map((tool: any) => ({
+        name: tool.name,
+        description: tool.description || "",
+        inputSchema: tool.inputSchema || {
+          type: "object",
+          properties: {},
+        },
+      }));
+
+      logger.debug("Successfully retrieved tools from Playwright MCP", {
         instanceId: this.instance.id,
-        toolCount: tools.length
+        toolCount: transformedTools.length
       });
 
-      return tools;
+      return transformedTools;
     } catch (error) {
-      logger.error("Failed to list tools from Playwright instance", {
+      logger.error("Failed to list tools from Playwright MCP instance", {
         instanceId: this.instance.id,
         error: error instanceof Error ? error.message : String(error)
       });
@@ -54,19 +75,30 @@ export class PlaywrightClient {
     const baseUrl = `http://${config.orchestratorHost}:${this.instance.port}`;
 
     try {
-      logger.debug("Calling tool on Playwright instance", {
+      logger.debug("Sending MCP tool call request to Playwright instance", {
         instanceId: this.instance.id,
         toolName,
         args,
-        url: `${baseUrl}/tool/${encodeURIComponent(toolName)}`
+        url: `${baseUrl}/mcp`
       });
 
-      const response = await fetch(`${baseUrl}/tool/${encodeURIComponent(toolName)}`, {
+      // Send proper MCP JSON-RPC request to call tool
+      const mcpRequest = {
+        jsonrpc: "2.0",
+        method: "tools/call",
+        params: {
+          name: toolName,
+          arguments: args
+        },
+        id: Math.floor(Math.random() * 100000)
+      };
+
+      const response = await fetch(`${baseUrl}/mcp`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ arguments: args }),
+        body: JSON.stringify(mcpRequest),
         signal: AbortSignal.timeout(30000), // 30s timeout for tool calls
       });
 
@@ -75,9 +107,15 @@ export class PlaywrightClient {
         throw new Error(`HTTP ${response.status}: ${errorText}`);
       }
 
-      const result = await response.json();
+      const mcpResponse = await response.json();
 
-      logger.debug("Tool call completed successfully", {
+      if (mcpResponse.error) {
+        throw new Error(`MCP Error: ${mcpResponse.error.message || JSON.stringify(mcpResponse.error)}`);
+      }
+
+      const result = mcpResponse.result;
+
+      logger.debug("MCP tool call completed successfully", {
         instanceId: this.instance.id,
         toolName,
         hasResult: !!result
@@ -85,7 +123,7 @@ export class PlaywrightClient {
 
       return result;
     } catch (error) {
-      logger.error("Failed to call tool on Playwright instance", {
+      logger.error("Failed to call tool on Playwright MCP instance", {
         instanceId: this.instance.id,
         toolName,
         args,
@@ -97,14 +135,37 @@ export class PlaywrightClient {
 
   async checkHealth(): Promise<boolean> {
     try {
-      const response = await fetch(this.instance.healthUrl, {
-        method: "GET",
+      // Check if the MCP server is responding by sending a simple request
+      const baseUrl = `http://${config.orchestratorHost}:${this.instance.port}`;
+
+      // Try to send an MCP initialize request to check if server is responding
+      const mcpRequest = {
+        jsonrpc: "2.0",
+        method: "initialize",
+        params: {
+          protocolVersion: "2024-11-05",
+          capabilities: {},
+          clientInfo: {
+            name: "orchestrator-health-check",
+            version: "1.0.0"
+          }
+        },
+        id: 1
+      };
+
+      const response = await fetch(`${baseUrl}/mcp`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(mcpRequest),
         signal: AbortSignal.timeout(config.healthCheckTimeoutMs),
       });
 
       if (response.ok) {
-        const health = await response.json();
-        return health?.status === "ok" || health?.healthy === true;
+        const mcpResponse = await response.json();
+        // If we get a valid MCP response (success or error), the server is running
+        return mcpResponse.jsonrpc === "2.0" && (mcpResponse.result || mcpResponse.error);
       }
       return false;
     } catch {

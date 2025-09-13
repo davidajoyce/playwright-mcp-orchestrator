@@ -5,6 +5,8 @@ A production-ready Model Context Protocol (MCP) server that orchestrates multipl
 ## 🚀 Features
 
 - **MCP 2025 Compliance**: Built with official `@modelcontextprotocol/sdk`
+- **Docker Integration**: Uses official `mcr.microsoft.com/playwright/mcp:latest` image
+- **Proper MCP Proxying**: JSON-RPC protocol proxying to containerized Playwright servers
 - **Multi-Transport Support**: Works with both stdio and HTTP transports
 - **Security First**: DNS rebinding protection, rate limiting, CORS support
 - **Resource Management**: Container limits, health monitoring, graceful shutdown
@@ -66,7 +68,7 @@ Create a new Playwright MCP instance in Docker.
 ```json
 {
   "name": "test-browser",
-  "image": "ghcr.io/modelcontextprotocol/servers/playwright:latest"
+  "image": "mcr.microsoft.com/playwright/mcp:latest"
 }
 ```
 
@@ -113,7 +115,7 @@ Configure via environment variables:
 
 ```bash
 # Docker settings
-PLAYWRIGHT_MCP_IMAGE=ghcr.io/modelcontextprotocol/servers/playwright:latest
+PLAYWRIGHT_MCP_IMAGE=mcr.microsoft.com/playwright/mcp:latest
 EXPOSED_PORT_IN_CONTAINER=3001
 CONTAINER_NETWORK=mcp-network
 
@@ -175,11 +177,12 @@ The orchestrator manages Playwright MCP containers with:
 
 ### Container Requirements
 
-Your Playwright MCP image should:
-1. Expose an HTTP server on port 3001
-2. Provide `/health` endpoint returning `{"status": "ok"}`
-3. Provide `/tools` endpoint listing available MCP tools
-4. Provide `/tool/{name}` POST endpoint for tool execution
+The orchestrator uses the official Microsoft Playwright MCP Docker image:
+- **Image**: `mcr.microsoft.com/playwright/mcp:latest`
+- **Protocol**: Model Context Protocol (MCP) over HTTP
+- **Endpoint**: `/mcp` for MCP JSON-RPC requests
+- **Tools**: Browser automation via Playwright (navigate, click, fill, etc.)
+- **Capabilities**: Headless browser automation with structured accessibility data
 
 ## 🔒 Security Features
 

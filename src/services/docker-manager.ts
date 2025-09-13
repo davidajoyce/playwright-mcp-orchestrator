@@ -52,7 +52,7 @@ export class DockerManager {
         port: hostPort,
         createdAt: new Date().toISOString(),
         status: "starting",
-        healthUrl: `http://${config.orchestratorHost}:${hostPort}/health`,
+        healthUrl: `http://${config.orchestratorHost}:${hostPort}/mcp`,
       };
 
       // Validate instance data
@@ -174,6 +174,11 @@ export class DockerManager {
       name: containerConfig.name
         ? `mcp-playwright-${containerConfig.name}-${Math.floor(Math.random() * 9999)}`
         : undefined,
+      Cmd: [
+        "--port", containerConfig.exposedPort.toString(),
+        "--host", "0.0.0.0",
+        "--headless"
+      ],
       Env: [
         "NODE_ENV=production",
         ...(containerConfig.env ? Object.entries(containerConfig.env).map(([k, v]) => `${k}=${v}`) : []),
