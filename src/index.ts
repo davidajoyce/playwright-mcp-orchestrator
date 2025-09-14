@@ -207,30 +207,27 @@ class PlaywrightOrchestrator {
           const client = new PlaywrightClientStdio(instance);
           const result = await client.callTool(tool, args);
 
-          logger.debug("Called tool on instance", { instanceId, tool, hasResult: !!result });
+          logger.debug("Proxying tool result transparently", {
+            instanceId,
+            tool,
+            hasResult: !!result,
+            resultKeys: result ? Object.keys(result) : [],
+            isError: result?.isError
+          });
 
-          return {
-            content: [{
-              type: "text" as const,
-              text: JSON.stringify({
-                success: true,
-                instanceId,
-                tool,
-                result,
-              }, null, 2)
-            }]
-          };
+          // TRANSPARENT PROXY: Return the exact same structure as Playwright MCP
+          // No wrapping in success/error objects - just pass through the raw result
+          return result;
+
         } catch (error) {
           const errorMessage = error instanceof Error ? error.message : String(error);
           logger.error("Failed to call tool", { instanceId, tool, args, error: errorMessage });
 
+          // Return error in the same format as Playwright MCP would
           return {
             content: [{
               type: "text" as const,
-              text: JSON.stringify({
-                success: false,
-                error: errorMessage,
-              }, null, 2)
+              text: `Error calling tool '${tool}': ${errorMessage}`
             }],
             isError: true,
           };
