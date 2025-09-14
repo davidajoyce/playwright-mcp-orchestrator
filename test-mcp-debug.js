@@ -4,11 +4,19 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 
 /**
- * Debug MCP Tool Call Error
+ * MCP Debug Test - CRITICAL REGRESSION TEST
  *
- * Reproduces the exact error scenario:
+ * WHY THIS TEST IS IMPORTANT:
+ * - Reproduces the exact user error that was reported and fixed
+ * - Validates that the core "Connection closed" bug stays resolved
+ * - Tests the complete tool call chain: orchestrator → STDIO client → Docker container
+ * - Verifies browser navigation works and sessions persist between calls
+ *
+ * Original failing scenario:
  * playwright-orchestrator - call_tool (instanceId: "6022a7f1...", tool: "browser_navigate", args: {"url":"https://www.bing.com/maps"})
  * Error: Failed to connect: MCP error -32000: Connection closed
+ *
+ * This test ensures the fix (client caching + correct Docker image) remains working.
  */
 
 async function debugMCPError() {

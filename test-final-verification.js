@@ -4,10 +4,20 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 
 /**
- * Final Verification Test
+ * Final Verification Test - COMPREHENSIVE SYSTEM TEST
  *
- * Comprehensive test to verify the STDIO connection fix and
- * test the exact user scenario that was failing.
+ * WHY THIS TEST IS IMPORTANT:
+ * - Complete end-to-end testing of the orchestrator system
+ * - Tests multiple concurrent instances to verify session isolation
+ * - Validates browser navigation, session persistence, and container lifecycle
+ * - Ensures no container name conflicts when running multiple instances
+ * - Verifies the orchestrator can handle real-world usage patterns
+ *
+ * This test covers scenarios that the basic debug test doesn't:
+ * - Multiple Claude Code sessions running simultaneously
+ * - Container cleanup and resource management
+ * - Complex browser interactions across multiple tool calls
+ * - Network connectivity and Docker networking fixes
  */
 
 async function testUserScenario() {

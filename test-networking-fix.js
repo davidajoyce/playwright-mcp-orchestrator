@@ -4,11 +4,21 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 
 /**
- * Test Networking Fix - Demonstrates Docker Networking Solution
+ * Docker Networking Fix Test - INFRASTRUCTURE VALIDATION
  *
- * This test proves that Docker containers with proper networking flags
- * can successfully navigate to external websites, fixing the original
- * "No open pages available" error.
+ * WHY THIS TEST IS IMPORTANT:
+ * - Validates the critical Docker networking flags that enable browser navigation
+ * - Tests the specific flags: --cap-add=SYS_ADMIN, --add-host, --security-opt
+ * - Demonstrates both direct container and orchestrator networking work
+ * - Prevents regression of networking configuration that could break browser access
+ * - Essential for environments with strict Docker security policies
+ *
+ * Without these networking fixes:
+ * - Browsers in containers cannot access external websites
+ * - Navigation commands succeed but show "about:blank"
+ * - Users get "No open pages available" errors on interactions
+ *
+ * This test ensures the infrastructure layer remains properly configured.
  */
 
 async function testNetworkingFix() {

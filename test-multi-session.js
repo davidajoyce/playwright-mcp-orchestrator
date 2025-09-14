@@ -4,11 +4,21 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 
 /**
- * Test Multi-Session Isolation
+ * Multi-Session Isolation Test - CONCURRENCY & ISOLATION VALIDATION
  *
- * Verifies that different AI sessions (like multiple Claude Code instances)
- * each get their own dedicated containers while maintaining session state
- * within each session.
+ * WHY THIS TEST IS IMPORTANT:
+ * - Validates that multiple Claude Code sessions can run simultaneously
+ * - Ensures each session gets its own dedicated Docker container
+ * - Tests that sessions don't interfere with each other's browser state
+ * - Verifies container naming and lifecycle management under load
+ * - Critical for production deployment where multiple users use Claude Code
+ *
+ * Real-world scenario this prevents:
+ * - User A navigates to Bank website in Claude Code
+ * - User B navigates to Email in another Claude Code session
+ * - Without proper isolation, User A might see User B's email!
+ *
+ * This test ensures complete session isolation and prevents data leakage.
  */
 
 async function testMultiSessionIsolation() {
