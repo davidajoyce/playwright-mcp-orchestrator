@@ -30,51 +30,8 @@ class PlaywrightOrchestrator {
   }
 
   private setupTools(): void {
-    // Tool: Create new Playwright browser instance
-    this.server.tool(
-      "new_browser",
-      {
-        name: z.string().optional().describe("Human-readable name for the instance"),
-        image: z.string().optional().describe("Docker image to use for Playwright MCP"),
-      },
-      async ({ name, image }) => {
-        try {
-          const instance = await this.dockerManager.createPlaywrightInstance(image, name);
-          logger.info("Created new browser instance", { instanceId: instance.id });
-
-          return {
-            content: [{
-              type: "text" as const,
-              text: JSON.stringify({
-                success: true,
-                instance: {
-                  id: instance.id,
-                  name: instance.name,
-                  image: instance.image,
-                  port: instance.port,
-                  status: instance.status,
-                  createdAt: instance.createdAt,
-                },
-              }, null, 2)
-            }]
-          };
-        } catch (error) {
-          const errorMessage = error instanceof Error ? error.message : String(error);
-          logger.error("Failed to create browser instance", { error: errorMessage });
-
-          return {
-            content: [{
-              type: "text" as const,
-              text: JSON.stringify({
-                success: false,
-                error: errorMessage,
-              }, null, 2)
-            }],
-            isError: true,
-          };
-        }
-      }
-    );
+    // Orchestrator provides minimal management tools
+    // Browser instances are created automatically when needed
 
     // Tool: List all active instances
     this.server.tool(
@@ -104,68 +61,40 @@ class PlaywrightOrchestrator {
       }
     );
 
-    // Tool: Stop a browser instance
-    this.server.tool(
-      "stop_browser",
-      {
-        instanceId: z.string().uuid().describe("ID of the instance to stop"),
-      },
-      async ({ instanceId }) => {
-        try {
-          await this.dockerManager.stopInstance(instanceId);
-          logger.info("Stopped browser instance", { instanceId });
 
-          return {
-            content: [{
-              type: "text" as const,
-              text: JSON.stringify({
-                success: true,
-                message: `Stopped instance ${instanceId}`,
-              }, null, 2)
-            }]
-          };
-        } catch (error) {
-          const errorMessage = error instanceof Error ? error.message : String(error);
-          logger.error("Failed to stop browser instance", { instanceId, error: errorMessage });
-
-          return {
-            content: [{
-              type: "text" as const,
-              text: JSON.stringify({
-                success: false,
-                error: errorMessage,
-              }, null, 2)
-            }],
-            isError: true,
-          };
-        }
-      }
-    );
-
-    // Tool: List available tools from a specific instance
+    // Tool: List available tools (creates instance automatically if needed)
     this.server.tool(
       "list_tools",
       {
-        instanceId: z.string().uuid().describe("ID of the Playwright instance"),
+        instanceId: z.string().uuid().optional().describe("Optional ID of existing Playwright instance"),
       },
       async ({ instanceId }) => {
         try {
-          const instance = this.dockerManager.getInstance(instanceId);
-          if (!instance) {
-            throw new Error(`Instance not found: ${instanceId}`);
+          let instance;
+
+          if (instanceId) {
+            // Use existing instance if provided
+            instance = this.dockerManager.getInstance(instanceId);
+            if (!instance) {
+              throw new Error(`Instance not found: ${instanceId}`);
+            }
+          } else {
+            // Auto-create a new instance
+            instance = await this.dockerManager.createPlaywrightInstance();
+            logger.info("Auto-created browser instance for list_tools", { instanceId: instance.id });
           }
 
           const client = new PlaywrightClientStdio(instance);
           const tools = await client.listTools();
 
-          logger.debug("Listed tools for instance", { instanceId, toolCount: tools.length });
+          logger.debug("Listed tools for instance", { instanceId: instance.id, toolCount: tools.length });
 
           return {
             content: [{
               type: "text" as const,
               text: JSON.stringify({
                 success: true,
-                instanceId,
+                instanceId: instance.id,
                 tools,
                 count: tools.length,
               }, null, 2)

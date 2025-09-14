@@ -2,7 +2,13 @@
   "name": "mcp-playwright-orchestrator",
   "version": "0.2.0",
   "type": "module",
-  "private": true,
+  "description": "MCP server orchestrator for managing multiple Playwright Docker instances",
+  "keywords": ["mcp", "playwright", "docker", "orchestrator", "browser-automation"],
+  "author": "Your Name",
+  "license": "MIT",
+  "bin": {
+    "mcp-playwright-orchestrator": "./dist/index.js"
+  },
   "scripts": {
     "dev": "tsx src/index.ts",
     "build": "tsc -p tsconfig.json",
