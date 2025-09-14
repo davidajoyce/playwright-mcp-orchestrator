@@ -66,7 +66,7 @@ export class DockerManager {
     const containerConfig: ContainerConfig = {
       image: image || config.defaultImage,
       name,
-      exposedPort: config.exposedPortInContainer,
+      exposedPort: 3001, // STDIO-only, port not used but required by schema
       networkMode: config.containerNetwork,
       ...customConfig,
     };

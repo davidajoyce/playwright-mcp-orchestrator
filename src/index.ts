@@ -1,21 +1,13 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { z } from "zod";
 import { DockerManager } from "./services/docker-manager.js";
 import { PlaywrightClientStdio } from "./services/playwright-client-stdio.js";
 import { logger } from "./utils/logger.js";
-import { config } from "./utils/config.js";
-import express from "express";
-import cors from "cors";
-import helmet from "helmet";
-import rateLimit from "express-rate-limit";
-import { randomUUID } from "node:crypto";
 
 class PlaywrightOrchestrator {
   private server: McpServer;
   private dockerManager: DockerManager;
-  private app?: express.Application;
   private isShuttingDown = false;
   private clientCache = new Map<string, PlaywrightClientStdio>(); // Cache clients by instanceId
 
@@ -264,7 +256,7 @@ class PlaywrightOrchestrator {
     });
   }
 
-  async startStdio(): Promise<void> {
+  async start(): Promise<void> {
     logger.info("Starting MCP orchestrator with stdio transport");
 
     const transport = new StdioServerTransport();
@@ -272,103 +264,12 @@ class PlaywrightOrchestrator {
 
     logger.info("MCP orchestrator started successfully with stdio transport");
   }
-
-  async startHttp(port: number = 3000): Promise<void> {
-    logger.info("Starting MCP orchestrator with HTTP transport", { port });
-
-    this.app = express();
-
-    // Security middleware
-    this.app.use(helmet({
-      crossOriginResourcePolicy: { policy: "cross-origin" },
-    }));
-
-    this.app.use(cors({
-      origin: "*", // Configure for production
-      exposedHeaders: ["Mcp-Session-Id"],
-      allowedHeaders: ["Content-Type", "mcp-session-id"],
-    }));
-
-    // Rate limiting
-    this.app.use(rateLimit({
-      windowMs: config.rateLimiting.windowMs,
-      max: config.rateLimiting.max,
-      message: { error: "Too many requests" },
-    }));
-
-    this.app.use(express.json({ limit: "10mb" }));
-
-    // Health endpoint
-    this.app.get("/health", (_req, res) => {
-      res.json({
-        status: "ok",
-        version: "0.2.0",
-        instances: this.dockerManager.getAllInstances().length,
-        uptime: process.uptime(),
-      });
-    });
-
-    // Map to store transports by session ID
-    const transports: { [sessionId: string]: StreamableHTTPServerTransport } = {};
-
-    // MCP endpoint
-    this.app.all("/mcp", async (req, res) => {
-      const sessionId = req.headers["mcp-session-id"] as string | undefined;
-      let transport: StreamableHTTPServerTransport;
-
-      if (sessionId && transports[sessionId]) {
-        transport = transports[sessionId];
-      } else if (!sessionId && req.method === "POST") {
-        transport = new StreamableHTTPServerTransport({
-          sessionIdGenerator: () => randomUUID(),
-          onsessioninitialized: (id) => {
-            transports[id] = transport;
-          },
-          enableDnsRebindingProtection: config.enableDnsRebindingProtection,
-          allowedHosts: config.allowedHosts,
-        });
-
-        transport.onclose = () => {
-          if (transport.sessionId) {
-            delete transports[transport.sessionId];
-          }
-        };
-
-        await this.server.connect(transport);
-      } else {
-        res.status(400).json({
-          jsonrpc: "2.0",
-          error: {
-            code: -32000,
-            message: "Bad Request: No valid session ID provided",
-          },
-          id: null,
-        });
-        return;
-      }
-
-      await transport.handleRequest(req, res, req.body);
-    });
-
-    this.app.listen(port, () => {
-      logger.info(`MCP orchestrator started successfully on port ${port}`);
-    });
-  }
 }
 
 // Main execution
 async function main(): Promise<void> {
   const orchestrator = new PlaywrightOrchestrator();
-
-  // Check if running in HTTP mode
-  const httpMode = process.argv.includes("--http");
-  const port = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
-
-  if (httpMode) {
-    await orchestrator.startHttp(port);
-  } else {
-    await orchestrator.startStdio();
-  }
+  await orchestrator.start();
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

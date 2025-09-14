@@ -50,17 +50,9 @@ export type PlaywrightTool = z.infer<typeof PlaywrightToolSchema>;
 
 export interface OrchestratorConfig {
   defaultImage: string;
-  exposedPortInContainer: number;
-  orchestratorHost: string;
   containerNetwork?: string | undefined;
   maxInstances: number;
   healthCheckTimeoutMs: number;
   containerStartupTimeoutMs: number;
-  enableDnsRebindingProtection: boolean;
-  allowedHosts: string[];
   logLevel: "error" | "warn" | "info" | "debug";
-  rateLimiting: {
-    windowMs: number;
-    max: number;
-  };
 }
