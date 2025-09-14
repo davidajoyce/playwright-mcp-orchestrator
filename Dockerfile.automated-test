@@ -1,0 +1,211 @@
+FROM node:22-alpine
+
+WORKDIR /app
+
+# Install curl for testing
+RUN apk add --no-cache curl
+
+# Create automated test script
+RUN cat > automated-test.js << 'EOF'
+const { spawn } = require('child_process');
+const { setTimeout: sleep } = require('timers/promises');
+
+async function runAutomatedTest() {
+  console.log('🤖 [AUTOMATED] Starting full Playwright MCP test sequence...\n');
+
+  // Step 1: Start the MCP server
+  console.log('📡 [AUTOMATED] Step 1: Starting Playwright MCP Server...');
+
+  const server = spawn('npx', ['@playwright/mcp@latest', '--headless', '--browser', 'chromium', '--port', '3003', '--host', '0.0.0.0'], {
+    stdio: ['pipe', 'pipe', 'pipe']
+  });
+
+  let serverOutput = [];
+
+  server.stdout.on('data', (data) => {
+    const output = data.toString().trim();
+    console.log(`   📤 [SERVER] ${output}`);
+    serverOutput.push(output);
+  });
+
+  server.stderr.on('data', (data) => {
+    const output = data.toString().trim();
+    console.log(`   ⚠️ [SERVER] ${output}`);
+    if (output.includes('Listening on')) {
+      console.log('   ✅ [AUTOMATED] Server is ready!');
+    }
+  });
+
+  server.on('error', (error) => {
+    console.error(`   💥 [SERVER ERROR] ${error.message}`);
+  });
+
+  // Wait for server to start
+  console.log('   ⏳ [AUTOMATED] Waiting 12 seconds for server startup...');
+  await sleep(12000);
+
+  try {
+    // Step 2: Initialize MCP Session
+    console.log('\n🔐 [AUTOMATED] Step 2: Initialize MCP Session...');
+
+    const initResponse = await fetch('http://localhost:3003/mcp', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json, text/event-stream',
+      },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        method: 'initialize',
+        params: {
+          protocolVersion: '2024-11-05',
+          capabilities: { tools: {} },
+          clientInfo: { name: 'automated-test', version: '1.0.0' }
+        },
+        id: 1
+      }),
+      signal: AbortSignal.timeout(8000)
+    });
+
+    if (!initResponse.ok) {
+      throw new Error(`Initialize failed: ${initResponse.status}`);
+    }
+
+    const initText = await initResponse.text();
+    const sessionId = initResponse.headers.get('mcp-session-id');
+
+    console.log(`   ✅ [AUTOMATED] Initialize successful!`);
+    console.log(`   🎫 [AUTOMATED] Session ID: ${sessionId || 'no-session-header'}`);
+
+    // Parse server info from SSE response
+    const lines = initText.split('\n');
+    for (const line of lines) {
+      if (line.startsWith('data: ')) {
+        try {
+          const data = JSON.parse(line.substring(6));
+          if (data.result && data.result.serverInfo) {
+            console.log(`   🏷️ [AUTOMATED] Server: ${data.result.serverInfo.name} v${data.result.serverInfo.version}`);
+          }
+        } catch (e) {}
+      }
+    }
+
+    // Step 3: Test tools/list
+    console.log('\n🔧 [AUTOMATED] Step 3: Testing tools/list...');
+    console.log(`   ⏱️ [AUTOMATED] Starting tools/list request at ${new Date().toISOString()}`);
+
+    const headers = {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json, text/event-stream'
+    };
+    if (sessionId) {
+      headers['mcp-session-id'] = sessionId;
+    }
+
+    const startTime = Date.now();
+
+    const toolsResponse = await fetch('http://localhost:3003/mcp', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        method: 'tools/list',
+        params: {},
+        id: 2
+      }),
+      signal: AbortSignal.timeout(15000) // 15 second timeout
+    });
+
+    const endTime = Date.now();
+    const duration = endTime - startTime;
+
+    console.log(`   ⏱️ [AUTOMATED] Response received after ${duration}ms`);
+    console.log(`   📊 [AUTOMATED] Response status: ${toolsResponse.status}`);
+
+    if (toolsResponse.ok) {
+      const toolsText = await toolsResponse.text();
+      console.log(`   📏 [AUTOMATED] Response length: ${toolsText.length} chars`);
+
+      if (toolsText.length > 0) {
+        console.log(`   👀 [AUTOMATED] Response preview: ${toolsText.substring(0, 300)}`);
+
+        // Parse tools from SSE response
+        let toolsFound = false;
+        const lines = toolsText.split('\n');
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const data = JSON.parse(line.substring(6));
+              if (data.result && data.result.tools) {
+                console.log(`   🎉 [AUTOMATED] SUCCESS! Found ${data.result.tools.length} tools!`);
+                console.log('   🛠️ [AUTOMATED] Sample tools:');
+                data.result.tools.slice(0, 5).forEach((tool, i) => {
+                  console.log(`      ${i+1}. ${tool.name} - ${tool.description}`);
+                });
+                if (data.result.tools.length > 5) {
+                  console.log(`      ... and ${data.result.tools.length - 5} more tools`);
+                }
+                toolsFound = true;
+                break;
+              } else if (data.error) {
+                console.log(`   ❌ [AUTOMATED] Error in response: ${JSON.stringify(data.error)}`);
+              }
+            } catch (e) {
+              console.log(`   ⚠️ [AUTOMATED] Parse error: ${e.message}`);
+            }
+          }
+        }
+
+        if (!toolsFound) {
+          console.log('   ⚠️ [AUTOMATED] No tools found in SSE response');
+        }
+
+        console.log('\n' + '='.repeat(80));
+        console.log('🏆 AUTOMATED TEST RESULTS:');
+        console.log('='.repeat(80));
+        console.log(toolsFound ? '✅ TOOLS/LIST WORKS!' : '❌ TOOLS/LIST FAILED (but got response)');
+        console.log(`⏱️  Response time: ${duration}ms`);
+        console.log('='.repeat(80));
+
+      } else {
+        console.log('   ⚠️ [AUTOMATED] Empty response from tools/list');
+        console.log('\n❌ AUTOMATED TEST RESULTS: EMPTY RESPONSE');
+      }
+    } else {
+      const errorText = await toolsResponse.text();
+      console.log(`   ❌ [AUTOMATED] tools/list failed: ${errorText}`);
+      console.log('\n❌ AUTOMATED TEST RESULTS: HTTP ERROR');
+    }
+
+  } catch (error) {
+    if (error.name === 'AbortError') {
+      console.log('   ⏰ [AUTOMATED] TIMEOUT - tools/list is hanging');
+      console.log('\n' + '='.repeat(80));
+      console.log('🏆 AUTOMATED TEST RESULTS:');
+      console.log('='.repeat(80));
+      console.log('❌ TOOLS/LIST HANGS (CONFIRMED BUG)');
+      console.log('⏰ Timeout after 15 seconds');
+      console.log('='.repeat(80));
+    } else {
+      console.log(`   ❌ [AUTOMATED] Error: ${error.message}`);
+      console.log('\n❌ AUTOMATED TEST RESULTS: UNEXPECTED ERROR');
+    }
+  }
+
+  console.log('\n🔄 [AUTOMATED] Keeping server running for external testing...');
+  console.log('   💡 [AUTOMATED] You can now test manually at http://localhost:3003/mcp');
+
+  // Keep the server running
+  process.on('SIGTERM', () => {
+    console.log('\n🛑 [AUTOMATED] Received SIGTERM, stopping server...');
+    server.kill();
+    process.exit(0);
+  });
+}
+
+runAutomatedTest().catch(console.error);
+EOF
+
+EXPOSE 3003
+CMD ["node", "automated-test.js"]
