@@ -24,7 +24,7 @@ export class PlaywrightClientStdio {
         instanceId: this.instance.id
       });
 
-      // Use the exact same configuration that works in Claude Code
+      // Connect to the existing container with networking fixes via STDIO
       this.transport = new StdioClientTransport({
         command: "docker",
         args: [
@@ -32,7 +32,11 @@ export class PlaywrightClientStdio {
           "-i",
           "--rm",
           "--init",
-          "mcr.microsoft.com/playwright/mcp"
+          // Apply the same networking fixes that the orchestrator uses
+          "--cap-add=SYS_ADMIN",
+          "--add-host=host.docker.internal:host-gateway",
+          "--security-opt", "seccomp=unconfined",
+          this.instance.image  // Use the same image as the instance
         ]
       });
 

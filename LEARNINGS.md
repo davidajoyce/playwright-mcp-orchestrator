@@ -128,3 +128,56 @@ private initializeDockerEnhanced(): Docker {
 2. **User-Agent Header**: Provides proper identification to Docker daemon
 3. **Socket Path**: Explicitly specifies Docker daemon socket
 4. **Timeout Configuration**: Ensures adequate time for operations
+
+## 🌐 Docker Networking Issues & Fixes
+
+### Problem: "No open pages available" Error
+When using Playwright in Docker containers, navigation appears to succeed but pages remain on `about:blank`, causing browser interaction tools to fail with:
+```
+Error: No open pages available. Use the "browser_navigate" tool to navigate to a page first.
+```
+
+### Root Cause: Container Network Isolation
+Docker containers by default cannot access external websites due to:
+- Missing capabilities for Chromium sandboxing
+- No host network access for external DNS/HTTP
+- Restrictive security policies blocking browser processes
+
+### Solution: Docker Networking Flags
+```bash
+# Required networking capabilities for Playwright in Docker
+--cap-add=SYS_ADMIN                           # Chromium sandboxing support
+--add-host=host.docker.internal:host-gateway  # Host network access
+--security-opt seccomp=unconfined             # Browser process permissions
+```
+
+### Implementation in Orchestrator
+Both dockerode and CLI fallback now include networking fixes:
+
+**Dockerode Configuration:**
+```typescript
+HostConfig: {
+  CapAdd: ["SYS_ADMIN"],
+  ExtraHosts: ["host.docker.internal:host-gateway"],
+  SecurityOpt: ["seccomp=unconfined"],
+  // ... other config
+}
+```
+
+**CLI Fallback:**
+```bash
+docker run -d --rm \
+  --cap-add=SYS_ADMIN \
+  --add-host=host.docker.internal:host-gateway \
+  --security-opt seccomp=unconfined \
+  playwright-image
+```
+
+### Testing Results
+- ✅ **Before Fix**: Navigation stuck on `about:blank`
+- ✅ **After Fix**: Successfully loads `https://www.bing.com/maps?q=cafes+Surry+Hills+Sydney`
+- ✅ **Browser Interactions**: Click, type, snapshot tools now work properly
+- ✅ **External Sites**: Google, Bing, HttpBin all accessible
+
+### Key Insight
+The issue wasn't with MCP communication but with Docker networking preventing browsers from accessing external websites. This networking fix is **essential** for any Playwright Docker deployment.

@@ -251,7 +251,10 @@ export class DockerManager {
         Memory: containerConfig.resourceLimits?.memory ? this.parseMemory(containerConfig.resourceLimits.memory) : undefined,
         CpuQuota: containerConfig.resourceLimits?.cpus ? this.parseCpus(containerConfig.resourceLimits.cpus) : undefined,
         CpuPeriod: containerConfig.resourceLimits?.cpus ? 100000 : undefined,
-        SecurityOpt: ["no-new-privileges:true"],
+        // Network and security fixes for Playwright in Docker
+        CapAdd: ["SYS_ADMIN"],  // Required for Chromium sandboxing
+        ExtraHosts: ["host.docker.internal:host-gateway"],  // Host network access
+        SecurityOpt: ["seccomp=unconfined"],  // Browser process sandboxing
         ReadonlyRootfs: false, // Playwright may need to write temp files
       },
       Labels: labels,
@@ -276,7 +279,7 @@ export class DockerManager {
       try {
         const { spawn } = await import("child_process");
 
-        // Build Docker CLI command
+        // Build Docker CLI command with network capabilities for Playwright
         const dockerArgs = [
           "run", "-d",
           "--rm",
@@ -285,6 +288,10 @@ export class DockerManager {
           "--label", "mcp.role=playwright",
           "--label", "mcp.orchestrator=true",
           "--label", "mcp.created-by=mcp-playwright-orchestrator",
+          // Network and security fixes for Playwright in Docker
+          "--cap-add=SYS_ADMIN",  // Required for Chromium sandboxing
+          "--add-host=host.docker.internal:host-gateway",  // Host network access
+          "--security-opt", "seccomp=unconfined",  // Browser process sandboxing
           containerConfig.image,
           ...createOptions.Cmd
         ];
