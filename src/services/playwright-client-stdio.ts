@@ -11,6 +11,7 @@ export class PlaywrightClientStdio {
   private mcpClient: Client | null = null;
   private transport: StdioClientTransport | null = null;
   private isConnected = false;
+  private containerPromise: Promise<void> | null = null;
 
   constructor(private instance: InstanceInfo) {}
 
@@ -19,12 +20,21 @@ export class PlaywrightClientStdio {
       return;
     }
 
+    // Ensure only one connection attempt at a time
+    if (!this.containerPromise) {
+      this.containerPromise = this.createSingleContainerConnection();
+    }
+
+    await this.containerPromise;
+  }
+
+  private async createSingleContainerConnection(): Promise<void> {
     try {
-      logger.debug("Connecting to Playwright MCP via stdio", {
+      logger.debug("Creating single persistent STDIO container for instance", {
         instanceId: this.instance.id
       });
 
-      // Connect to the existing container with networking fixes via STDIO
+      // Create one persistent container per instance with networking fixes
       this.transport = new StdioClientTransport({
         command: "docker",
         args: [
@@ -32,11 +42,12 @@ export class PlaywrightClientStdio {
           "-i",
           "--rm",
           "--init",
-          // Apply the same networking fixes that the orchestrator uses
+          "--name", `mcp-playwright-instance-${this.instance.id.substring(0, 8)}`,
+          // Apply networking fixes for browser navigation
           "--cap-add=SYS_ADMIN",
           "--add-host=host.docker.internal:host-gateway",
           "--security-opt", "seccomp=unconfined",
-          this.instance.image  // Use the same image as the instance
+          this.instance.image
         ]
       });
 
@@ -48,15 +59,19 @@ export class PlaywrightClientStdio {
       await this.mcpClient.connect(this.transport);
       this.isConnected = true;
 
-      logger.info("Successfully connected to Playwright MCP via stdio", {
-        instanceId: this.instance.id
+      logger.info("Successfully created persistent STDIO container", {
+        instanceId: this.instance.id,
+        containerName: `mcp-playwright-instance-${this.instance.id.substring(0, 8)}`
       });
 
     } catch (error) {
-      logger.error("Failed to connect to Playwright MCP via stdio", {
+      logger.error("Failed to create STDIO container", {
         instanceId: this.instance.id,
         error: error instanceof Error ? error.message : String(error)
       });
+
+      // Reset container promise so we can retry
+      this.containerPromise = null;
       throw new Error(`Failed to connect: ${error instanceof Error ? error.message : String(error)}`);
     }
   }

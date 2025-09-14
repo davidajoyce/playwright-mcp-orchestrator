@@ -8,7 +8,7 @@ export const InstanceSchema = z.object({
   port: z.number().int().min(1024).max(65535),
   createdAt: z.string().datetime(),
   status: z.enum(["starting", "running", "stopping", "stopped", "error"]).default("starting"),
-  healthUrl: z.string().url(),
+  healthUrl: z.string().url().optional(), // Optional with STDIO approach
 });
 
 export type InstanceInfo = z.infer<typeof InstanceSchema>;

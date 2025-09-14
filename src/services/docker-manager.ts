@@ -1,6 +1,6 @@
 import Docker from "dockerode";
 import { randomUUID } from "node:crypto";
-import { setTimeout as sleep } from "node:timers/promises";
+// import { setTimeout as sleep } from "node:timers/promises"; // Not used with STDIO approach
 import { InstanceInfo, ContainerConfig, InstanceSchema } from "../types/index.js";
 import { logger } from "../utils/logger.js";
 import { config } from "../utils/config.js";
@@ -74,57 +74,34 @@ export class DockerManager {
     logger.info("Creating Playwright container", { config: containerConfig });
 
     try {
-      // Completely skip image availability check - we confirmed image exists
-      logger.debug("Skipping all image checks, proceeding to container creation", { image: containerConfig.image });
+      logger.debug("Creating logical instance (STDIO client will handle actual container)", {
+        image: containerConfig.image
+      });
 
-      // Generate random host port
-      const hostPort = this.generateRandomPort();
-      logger.debug("Generated host port for container", { hostPort, image: containerConfig.image });
-
-      const containerId = await this.createContainer(containerConfig, hostPort);
-      logger.debug("Container created successfully", { containerId, image: containerConfig.image });
-
-      // Start container (if created via dockerode, otherwise CLI already started it)
-      try {
-        const container = this.docker.getContainer(containerId);
-        await container.start();
-      } catch (startError) {
-        // If CLI fallback was used, container is already running
-        logger.debug("Container start via dockerode failed, assuming CLI container already running", {
-          containerId,
-          error: startError instanceof Error ? startError.message : String(startError)
-        });
-      }
-      logger.debug("Container started successfully", { containerId });
-
+      // Create instance metadata - STDIO client handles actual container creation
       const instanceInfo: InstanceInfo = {
         id: randomUUID(),
         name: containerConfig.name,
         image: containerConfig.image,
-        containerId,
-        port: hostPort,
+        containerId: "stdio-managed", // Not used - STDIO client handles containers
+        port: this.generateRandomPort(), // Not used with STDIO, but kept for compatibility
         createdAt: new Date().toISOString(),
-        status: "starting",
-        healthUrl: `http://${config.orchestratorHost}:${hostPort}/mcp`,
+        status: "running", // Immediately available
       };
 
       // Validate instance data
       const validatedInstance = InstanceSchema.parse(instanceInfo);
       this.instances.set(validatedInstance.id, validatedInstance);
 
-      // Wait for container to be ready
-      await this.waitForContainerReady(validatedInstance);
-
-      validatedInstance.status = "running";
-      logger.info("Playwright container started successfully", {
+      logger.info("Logical Playwright instance created successfully", {
         instanceId: validatedInstance.id,
-        port: hostPort
+        image: containerConfig.image
       });
 
       return validatedInstance;
     } catch (error) {
-      logger.error("Failed to create Playwright container", { error, config: containerConfig });
-      throw new Error(`Failed to create container: ${error instanceof Error ? error.message : String(error)}`);
+      logger.error("Failed to create Playwright instance", { error, config: containerConfig });
+      throw new Error(`Failed to create instance: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
@@ -167,32 +144,9 @@ export class DockerManager {
     if (!instance) return "unknown";
 
     try {
-      // MCP containers expect proper MCP initialization request
-      const response = await fetch(instance.healthUrl, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Accept": "application/json, text/event-stream",
-        },
-        body: JSON.stringify({
-          jsonrpc: "2.0",
-          method: "initialize",
-          params: {
-            protocolVersion: "2024-11-05",
-            capabilities: {},
-            clientInfo: { name: "health-check", version: "1.0.0" }
-          },
-          id: 1
-        }),
-        signal: AbortSignal.timeout(config.healthCheckTimeoutMs),
-      });
-
-      if (response.ok) {
-        const responseText = await response.text();
-        // Check if response contains MCP server info (either JSON or SSE format)
-        return responseText.includes('"serverInfo"') ? "healthy" : "unhealthy";
-      }
-      return "unhealthy";
+      // For STDIO-managed instances, health is based on instance existence
+      // The STDIO client will handle actual container health
+      return instance.status === "running" ? "healthy" : "unhealthy";
     } catch {
       return "unhealthy";
     }
@@ -216,7 +170,9 @@ export class DockerManager {
     return Math.floor(Math.random() * 20000) + 30000;
   }
 
-  private async createContainer(containerConfig: ContainerConfig, hostPort: number): Promise<string> {
+  /*
+  // Legacy methods - no longer used with STDIO approach
+  private async createContainer(containerConfig: ContainerConfig): Promise<string> {
     const labels = {
       "mcp.role": "playwright",
       "mcp.orchestrator": "true",
@@ -229,23 +185,15 @@ export class DockerManager {
       name: containerConfig.name
         ? `mcp-playwright-${containerConfig.name}-${Math.floor(Math.random() * 9999)}`
         : undefined,
-      Cmd: [
-        "--port", containerConfig.exposedPort.toString(),
-        "--host", "0.0.0.0",
-        "--headless",
-        "--no-sandbox"
-      ],
+      // Keep container alive without starting MCP server automatically
+      // STDIO client will exec into container to start MCP server on demand
+      Cmd: ["tail", "-f", "/dev/null"],
       Env: [
         "NODE_ENV=production",
         ...(containerConfig.env ? Object.entries(containerConfig.env).map(([k, v]) => `${k}=${v}`) : []),
       ],
-      ExposedPorts: {
-        [`${containerConfig.exposedPort}/tcp`]: {},
-      },
+      // No port exposure needed - using STDIO communication only
       HostConfig: {
-        PortBindings: {
-          [`${containerConfig.exposedPort}/tcp`]: [{ HostPort: hostPort.toString() }],
-        },
         AutoRemove: true,
         NetworkMode: containerConfig.networkMode || undefined,
         Memory: containerConfig.resourceLimits?.memory ? this.parseMemory(containerConfig.resourceLimits.memory) : undefined,
@@ -283,7 +231,6 @@ export class DockerManager {
         const dockerArgs = [
           "run", "-d",
           "--rm",
-          "-p", `${hostPort}:${containerConfig.exposedPort}`,
           "--name", createOptions.name || `mcp-playwright-${Date.now()}`,
           "--label", "mcp.role=playwright",
           "--label", "mcp.orchestrator=true",
@@ -293,7 +240,8 @@ export class DockerManager {
           "--add-host=host.docker.internal:host-gateway",  // Host network access
           "--security-opt", "seccomp=unconfined",  // Browser process sandboxing
           containerConfig.image,
-          ...createOptions.Cmd
+          // Keep container alive for STDIO exec
+          "tail", "-f", "/dev/null"
         ];
 
         logger.debug("Executing Docker CLI fallback", { command: "docker", args: dockerArgs });
@@ -353,7 +301,10 @@ export class DockerManager {
 
     throw new Error(`Container failed to become healthy within ${config.containerStartupTimeoutMs}ms`);
   }
+  */
 
+  /*
+  // Legacy utility methods - no longer used with STDIO approach
   private parseMemory(memory: string): number {
     const match = memory.match(/^(\d+)(m|g|k)?$/i);
     if (!match) throw new Error(`Invalid memory format: ${memory}`);
@@ -377,4 +328,5 @@ export class DockerManager {
     // Convert to microseconds (CpuQuota is in microseconds per CpuPeriod)
     return Math.floor(value * 100000);
   }
+  */
 }
