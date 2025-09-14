@@ -211,66 +211,6 @@ export class DockerManager {
     this.instances.clear();
   }
 
-  private async pullImageIfNeeded(image: string): Promise<void> {
-    try {
-      logger.debug("Checking if image needs to be pulled", { image });
-      await this.docker.getImage(image).inspect();
-      logger.debug("Image already exists locally", { image });
-    } catch (inspectError) {
-      logger.info("Pulling Docker image", { image });
-
-      try {
-        // Try without authconfig first for public registries
-        const stream = await this.docker.pull(image);
-
-        await new Promise((resolve, reject) => {
-          this.docker.modem.followProgress(stream, (err, res) => {
-            if (err) {
-              logger.error("Error during image pull", { image, error: err });
-              reject(err);
-            } else {
-              logger.info("Successfully pulled Docker image", { image });
-              resolve(res);
-            }
-          });
-        });
-      } catch (pullError) {
-        // If that fails, try to use Docker CLI as fallback
-        logger.warn("Dockerode pull failed, attempting Docker CLI fallback", {
-          image,
-          error: pullError instanceof Error ? pullError.message : String(pullError)
-        });
-
-        try {
-          const { spawn } = await import("child_process");
-          await new Promise((resolve, reject) => {
-            const dockerProcess = spawn("docker", ["pull", image], { stdio: "pipe" });
-
-            dockerProcess.on("close", (code) => {
-              if (code === 0) {
-                logger.info("Successfully pulled Docker image via CLI", { image });
-                resolve(undefined);
-              } else {
-                reject(new Error(`Docker CLI pull failed with exit code ${code}`));
-              }
-            });
-
-            dockerProcess.on("error", (err) => {
-              reject(new Error(`Failed to start Docker CLI: ${err.message}`));
-            });
-          });
-        } catch (cliError) {
-          logger.error("Both dockerode and CLI pull failed", {
-            image,
-            dockerodeError: pullError instanceof Error ? pullError.message : String(pullError),
-            cliError: cliError instanceof Error ? cliError.message : String(cliError),
-            inspectError: inspectError instanceof Error ? inspectError.message : String(inspectError)
-          });
-          throw pullError;
-        }
-      }
-    }
-  }
 
   private generateRandomPort(): number {
     return Math.floor(Math.random() * 20000) + 30000;
@@ -291,7 +231,9 @@ export class DockerManager {
         : undefined,
       Cmd: [
         "--port", containerConfig.exposedPort.toString(),
-        "--host", "0.0.0.0"
+        "--host", "0.0.0.0",
+        "--headless",
+        "--no-sandbox"
       ],
       Env: [
         "NODE_ENV=production",

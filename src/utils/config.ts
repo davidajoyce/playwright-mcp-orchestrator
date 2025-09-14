@@ -1,7 +1,7 @@
 import { OrchestratorConfig } from "../types/index.js";
 
 export const config: OrchestratorConfig = {
-  defaultImage: process.env.PLAYWRIGHT_MCP_IMAGE ?? "mcr.microsoft.com/playwright/mcp:latest",
+  defaultImage: process.env.PLAYWRIGHT_MCP_IMAGE ?? "mcp/playwright:latest",
   exposedPortInContainer: parseInt(process.env.EXPOSED_PORT_IN_CONTAINER || "3000", 10),
   orchestratorHost: process.env.ORCHESTRATOR_HOST ?? "127.0.0.1",
   containerNetwork: process.env.CONTAINER_NETWORK || undefined,

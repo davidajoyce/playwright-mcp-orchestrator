@@ -3,7 +3,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { z } from "zod";
 import { DockerManager } from "./services/docker-manager.js";
-import { PlaywrightClient } from "./services/playwright-client.js";
+import { PlaywrightClientStdio } from "./services/playwright-client-stdio.js";
 import { logger } from "./utils/logger.js";
 import { config } from "./utils/config.js";
 import express from "express";
@@ -155,7 +155,7 @@ class PlaywrightOrchestrator {
             throw new Error(`Instance not found: ${instanceId}`);
           }
 
-          const client = new PlaywrightClient(instance);
+          const client = new PlaywrightClientStdio(instance);
           const tools = await client.listTools();
 
           logger.debug("Listed tools for instance", { instanceId, toolCount: tools.length });
@@ -204,7 +204,7 @@ class PlaywrightOrchestrator {
             throw new Error(`Instance not found: ${instanceId}`);
           }
 
-          const client = new PlaywrightClient(instance);
+          const client = new PlaywrightClientStdio(instance);
           const result = await client.callTool(tool, args);
 
           logger.debug("Called tool on instance", { instanceId, tool, hasResult: !!result });
