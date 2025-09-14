@@ -1,30 +1,88 @@
 # MCP Playwright Orchestrator
 
-A production-ready Model Context Protocol (MCP) server that orchestrates multiple Playwright MCP instances in Docker containers. This orchestrator allows you to spin up, manage, and interact with multiple isolated browser automation environments.
+A production-ready Model Context Protocol (MCP) server that enables **multiple concurrent Claude Code sessions** to use Playwright browser automation simultaneously. Each session gets its own isolated browser environment in a dedicated Docker container.
 
-## 🚀 Features
+## 🎯 Why This Orchestrator?
+
+**The Problem**: The standard Playwright MCP server can only handle **one browser session at a time**. When multiple Claude Code users try to use Playwright simultaneously, they share the same Chromium instance, leading to:
+- Browser state conflicts between users
+- Navigation interference (User A's actions affect User B's browser)
+- Session data leakage and security concerns
+- "No open pages available" errors when contexts collide
+
+**The Solution**: This orchestrator creates **dedicated Playwright containers** for each Claude Code session:
+- ✅ **True isolation** - Each user gets their own browser instance
+- ✅ **Concurrent usage** - Multiple Claude sessions can run Playwright simultaneously
+- ✅ **Session persistence** - Browser state maintained across multiple tool calls
+- ✅ **Scalable** - Spin up as many instances as needed
+- ✅ **Secure** - No data leakage between different users
+
+## 🚀 Quick Setup for Claude Code
+
+### 1. Install and Build
+```bash
+git clone <repository>
+cd playwright-mcp-orchestrator
+npm install
+npm run build
+```
+
+### 2. Add to Claude Code
+```bash
+# Recommended: Using npx for automatic updates
+claude mcp add playwright-orchestrator --scope user -- npx mcp-playwright-orchestrator
+
+# Alternative: Direct path
+claude mcp add playwright-orchestrator --scope user -- node /path/to/playwright-mcp-orchestrator/dist/index.js
+```
+
+### 3. Test Integration
+Start using Playwright tools in Claude Code - each session will automatically get its own isolated browser container!
+
+## 🏗️ High-Level Architecture
+
+```
+┌─────────────────┐    STDIO     ┌─────────────────────┐    STDIO     ┌─────────────────────┐
+│  Claude Code    │◄────────────►│                     │◄────────────►│ Docker Container    │
+│   Session A     │              │  MCP Orchestrator   │              │ Playwright Instance │
+└─────────────────┘              │                     │              │       A             │
+                                 │  • Client Cache     │              └─────────────────────┘
+┌─────────────────┐    STDIO     │  • Session Manager  │    STDIO     ┌─────────────────────┐
+│  Claude Code    │◄────────────►│  • Resource Pool    │◄────────────►│ Docker Container    │
+│   Session B     │              │  • Instance Tracker │              │ Playwright Instance │
+└─────────────────┘              └─────────────────────┘              │       B             │
+                                                                      └─────────────────────┘
+```
+
+### Key Components:
+
+#### **MCP Orchestrator (This Project)**
+- Receives MCP requests from Claude Code sessions
+- Creates and manages dedicated Playwright containers
+- Caches client connections for session persistence
+- Provides transparent tool proxying to containers
+
+#### **Session Isolation**
+- Each Claude Code session gets a unique `instanceId`
+- One persistent Docker container per instanceId
+- Browser state isolated between different users
+- Automatic cleanup when sessions end
+
+#### **Docker Container Management**
+- Uses official `mcr.microsoft.com/playwright/mcp:latest` image
+- STDIO-based communication (not HTTP)
+- Networking configured for external website access
+- Auto-removal with `--rm` flag for cleanup
+
+## 🛠️ Core Features
 
 - **MCP 2025 Compliance**: Built with official `@modelcontextprotocol/sdk`
-- **Docker Integration**: Uses official `mcr.microsoft.com/playwright/mcp:latest` image
-- **Proper MCP Proxying**: JSON-RPC protocol proxying to containerized Playwright servers
-- **Multi-Transport Support**: Works with both stdio and HTTP transports
-- **Security First**: DNS rebinding protection, rate limiting, CORS support
-- **Resource Management**: Container limits, health monitoring, graceful shutdown
-- **Type Safety**: Full TypeScript with Zod validation
-- **Production Ready**: Structured logging, error handling, monitoring
-
-## 🏗️ Architecture
-
-```
-┌─────────────────┐    ┌─────────────────┐    ┌──────────────────┐
-│   Claude/Client │────│  Orchestrator   │────│ Playwright MCP   │
-│                 │    │     (This)      │    │   Container 1    │
-└─────────────────┘    │                 │    └──────────────────┘
-                       │                 │    ┌──────────────────┐
-                       │                 │────│ Playwright MCP   │
-                       │                 │    │   Container 2    │
-                       └─────────────────┘    └──────────────────┘
-```
+- **Session Persistence**: Browser state maintained across multiple tool calls
+- **Concurrent Sessions**: Multiple Claude Code users can use Playwright simultaneously
+- **Docker Integration**: Automated container lifecycle management
+- **Transparent Proxying**: All Playwright MCP tools work exactly the same
+- **Resource Management**: Configurable limits, health monitoring, graceful shutdown
+- **Production Ready**: Full TypeScript, structured logging, error handling
 
 ## 🛠️ Installation & Setup
 
@@ -60,54 +118,46 @@ npm run dev -- --http
 PORT=3000 npm run dev -- --http
 ```
 
-## 🔧 Available Tools
+## 🔧 MCP Tools Available
 
-### `new_browser`
-Create a new Playwright MCP instance in Docker.
+The orchestrator provides 4 management tools that work transparently with Claude Code:
 
-```json
-{
-  "name": "test-browser",
-  "image": "mcr.microsoft.com/playwright/mcp:latest"
-}
+### `list_tools` (Auto-creates instance)
+Lists all available Playwright tools. If no instanceId provided, automatically creates a new dedicated browser instance for your session.
+
+**Claude Code Usage**: Automatically called when you first use Playwright
+**Returns**: 21+ browser automation tools (navigate, click, type, screenshot, etc.)
+
+### `call_tool` (Core browser automation)
+Executes any Playwright tool on your dedicated browser instance.
+
+**Examples in Claude Code**:
+- "Navigate to https://example.com" → `browser_navigate`
+- "Click the login button" → `browser_click`
+- "Type my email in the form" → `browser_type`
+- "Take a screenshot" → `browser_take_screenshot`
+- "Get page content" → `browser_snapshot`
+
+### `list_instances` (Management)
+Shows all running browser instances across all Claude Code sessions.
+
+### `check_health` (Diagnostics)
+Checks if a specific browser instance is healthy and responsive.
+
+## 💡 User Experience
+
+**From Claude Code perspective**, you just use Playwright tools normally:
+
+```
+You: "Navigate to GitHub and take a screenshot"
+
+Claude Code automatically:
+1. Calls list_tools → Creates your dedicated browser instance
+2. Calls browser_navigate → Opens GitHub in YOUR browser
+3. Calls browser_take_screenshot → Captures YOUR browser state
 ```
 
-### `list_instances`
-List all running Playwright instances.
-
-### `list_tools`
-List available tools from a specific Playwright instance.
-
-```json
-{
-  "instanceId": "uuid-of-instance"
-}
-```
-
-### `call_tool`
-Execute a tool on a specific Playwright instance.
-
-```json
-{
-  "instanceId": "uuid-of-instance",
-  "tool": "navigate_to",
-  "args": {
-    "url": "https://example.com"
-  }
-}
-```
-
-### `stop_browser`
-Stop and remove a Playwright instance.
-
-```json
-{
-  "instanceId": "uuid-of-instance"
-}
-```
-
-### `check_health`
-Check the health status of a Playwright instance.
+**Multiple users can do this simultaneously** without interfering with each other!
 
 ## ⚙️ Configuration
 
@@ -139,31 +189,37 @@ RATE_LIMIT_MAX=100
 
 ## 🧪 Testing
 
-The test suite includes:
-- **Integration tests**: Full MCP protocol compliance
-- **HTTP server tests**: Security headers, CORS, rate limiting
-- **Unit tests**: Docker management, error handling
-- **Load tests**: Concurrent requests, resource limits
+The project includes comprehensive test files for validation:
 
+### Critical Regression Tests
 ```bash
-# Run all tests
-npm test
+# Test the exact user scenario that was originally failing
+node test-mcp-debug.js
 
-# Run specific test file
-npm test orchestrator.test.ts
+# Complete end-to-end system test
+node test-final-verification.js
+
+# Multi-session isolation (security test)
+node test-multi-session.js
+
+# Docker networking validation
+node test-networking-fix.js
+```
+
+### Test Coverage
+- **Session Persistence**: Ensures browser state persists across tool calls
+- **Container Isolation**: Validates multiple Claude sessions don't interfere
+- **Docker Integration**: Tests container creation, networking, and cleanup
+- **MCP Protocol**: Verifies transparent tool proxying and error handling
+
+### Development Testing
+```bash
+# Build and run unit tests
+npm run build
+npm test
 
 # Run tests in watch mode
 npm run test:watch
-```
-
-### Test Structure
-
-```bash
-src/test/
-├── orchestrator.test.ts      # MCP integration tests
-├── http-server.test.ts       # HTTP transport tests
-├── docker-manager.test.ts    # Docker service tests
-└── setup.ts                  # Test configuration
 ```
 
 ## 🐳 Docker Usage
@@ -248,28 +304,46 @@ MIT License - see LICENSE file for details.
 
 ### Common Issues
 
-**Container startup timeout**
-```bash
-# Increase timeout
-CONTAINER_STARTUP_TIMEOUT_MS=60000 npm run dev
-```
+**"No open pages available" after navigation**
+- Issue: Browser can't access external websites due to Docker networking
+- Solution: The orchestrator includes networking fixes automatically
+- Test: Run `node test-networking-fix.js` to verify
 
-**Port conflicts**
-```bash
-# Use different port
-PORT=3001 npm run dev -- --http
-```
+**"Connection closed" errors**
+- Issue: Client caching not working properly
+- Solution: Restart orchestrator, check logs for container conflicts
+- Test: Run `node test-mcp-debug.js` to verify the fix
 
-**Permission errors**
+**Multiple users interfering with each other**
+- Issue: Sessions not properly isolated
+- Solution: Each Claude Code session should get unique instanceId
+- Test: Run `node test-multi-session.js` to verify isolation
+
+**Docker permission errors**
 ```bash
 # Ensure Docker socket access
 sudo usermod -aG docker $USER
+# Then logout/login or restart terminal
+```
+
+**Container cleanup issues**
+```bash
+# Clean up any stuck containers
+docker kill $(docker ps -q --filter "ancestor=mcr.microsoft.com/playwright/mcp:latest") 2>/dev/null || true
 ```
 
 ### Debug Mode
 
 ```bash
 LOG_LEVEL=debug npm run dev
+# Watch orchestrator logs for detailed container and session info
+```
+
+### Monitoring Containers
+
+```bash
+# Watch containers being created/destroyed
+watch -n 2 "docker ps --filter 'ancestor=mcr.microsoft.com/playwright/mcp:latest'"
 ```
 
 ## 🔗 Related Projects
