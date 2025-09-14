@@ -35,6 +35,7 @@ export class PlaywrightClientStdio {
       });
 
       // Create one persistent container per instance with networking fixes
+      // Note: Removed --name flag to avoid conflicts, Docker will auto-generate names
       this.transport = new StdioClientTransport({
         command: "docker",
         args: [
@@ -42,7 +43,6 @@ export class PlaywrightClientStdio {
           "-i",
           "--rm",
           "--init",
-          "--name", `mcp-playwright-instance-${this.instance.id.substring(0, 8)}`,
           // Apply networking fixes for browser navigation
           "--cap-add=SYS_ADMIN",
           "--add-host=host.docker.internal:host-gateway",
@@ -61,7 +61,7 @@ export class PlaywrightClientStdio {
 
       logger.info("Successfully created persistent STDIO container", {
         instanceId: this.instance.id,
-        containerName: `mcp-playwright-instance-${this.instance.id.substring(0, 8)}`
+        note: "Auto-generated container name (no conflicts)"
       });
 
     } catch (error) {
