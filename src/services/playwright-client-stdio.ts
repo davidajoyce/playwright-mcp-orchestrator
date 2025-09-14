@@ -31,7 +31,14 @@ export class PlaywrightClientStdio {
   private async createSingleContainerConnection(): Promise<void> {
     try {
       logger.debug("Creating single persistent STDIO container for instance", {
-        instanceId: this.instance.id
+        instanceId: this.instance.id,
+        dockerArgs: [
+          "run", "-i", "--rm", "--init",
+          "--cap-add=SYS_ADMIN",
+          "--add-host=host.docker.internal:host-gateway",
+          "--security-opt", "seccomp=unconfined",
+          this.instance.image
+        ]
       });
 
       // Create one persistent container per instance with networking fixes

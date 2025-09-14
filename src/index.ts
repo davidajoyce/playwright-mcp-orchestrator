@@ -17,6 +17,7 @@ class PlaywrightOrchestrator {
   private dockerManager: DockerManager;
   private app?: express.Application;
   private isShuttingDown = false;
+  private clientCache = new Map<string, PlaywrightClientStdio>(); // Cache clients by instanceId
 
   constructor() {
     this.dockerManager = new DockerManager();
@@ -133,7 +134,16 @@ class PlaywrightOrchestrator {
             throw new Error(`Instance not found: ${instanceId}`);
           }
 
-          const client = new PlaywrightClientStdio(instance);
+          // Get or create cached client for this instance
+          let client = this.clientCache.get(instanceId);
+          if (!client) {
+            client = new PlaywrightClientStdio(instance);
+            this.clientCache.set(instanceId, client);
+            logger.debug("Created new PlaywrightClientStdio for instance", { instanceId });
+          } else {
+            logger.debug("Reusing cached PlaywrightClientStdio for instance", { instanceId });
+          }
+
           const result = await client.callTool(tool, args);
 
           logger.debug("Proxying tool result transparently", {
@@ -217,6 +227,17 @@ class PlaywrightOrchestrator {
       logger.info(`Received ${signal}, shutting down gracefully...`);
 
       try {
+        // Clean up cached clients
+        logger.info("Cleaning up cached MCP clients", { count: this.clientCache.size });
+        for (const [instanceId, client] of this.clientCache.entries()) {
+          try {
+            await client.disconnect();
+          } catch (error) {
+            logger.warn("Error disconnecting client", { instanceId, error });
+          }
+        }
+        this.clientCache.clear();
+
         // Clean up Docker instances
         await this.dockerManager.cleanup();
 
